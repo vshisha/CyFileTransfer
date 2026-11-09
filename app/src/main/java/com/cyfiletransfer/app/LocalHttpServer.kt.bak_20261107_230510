@@ -1,0 +1,96 @@
+package com.cyfiletransfer.app
+
+import fi.iki.elonen.NanoHTTPD
+import java.net.NetworkInterface
+
+object LocalHttpServer {
+
+    private const val PORT = 1111
+
+    private var server: NanoHTTPD? = null
+
+    @Synchronized
+    fun start(): Boolean {
+        if (server?.isAlive == true) {
+            return true
+        }
+
+        return try {
+            val newServer = object : NanoHTTPD(PORT) {
+
+                override fun serve(session: IHTTPSession): Response {
+                    val html = """
+                        <!DOCTYPE html>
+                        <html lang="ru">
+                        <head>
+                            <meta charset="UTF-8">
+                            <meta name="viewport" content="width=device-width, initial-scale=1">
+                            <title>CyFileTransfer</title>
+                        </head>
+                        <body>
+                            <h1>CyFileTransfer</h1>
+                            <p>Сервер успешно запущен!</p>
+                            <p>Локальный файловый сервер работает.</p>
+                        </body>
+                        </html>
+                    """.trimIndent()
+
+                    return newFixedLengthResponse(
+                        Response.Status.OK,
+                        "text/html; charset=UTF-8",
+                        html
+                    )
+                }
+            }
+
+            newServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+            server = newServer
+            true
+        } catch (_: Exception) {
+            server = null
+            false
+        }
+    }
+
+    @Synchronized
+    fun stop() {
+        server?.stop()
+        server = null
+    }
+
+    fun isRunning(): Boolean {
+        return server?.isAlive == true
+    }
+
+    fun getLocalIpAddress(): String? {
+        return try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+
+            while (interfaces.hasMoreElements()) {
+                val networkInterface = interfaces.nextElement()
+
+                if (!networkInterface.isUp || networkInterface.isLoopback) {
+                    continue
+                }
+
+                val addresses = networkInterface.inetAddresses
+
+                while (addresses.hasMoreElements()) {
+                    val address = addresses.nextElement()
+
+                    if (!address.isLoopbackAddress &&
+                        address.hostAddress?.contains(':') == false
+                    ) {
+                        return address.hostAddress
+                    }
+                }
+            }
+
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun getPort(): Int = PORT
+}

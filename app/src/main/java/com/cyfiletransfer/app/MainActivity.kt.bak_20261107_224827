@@ -1,0 +1,675 @@
+
+package com.cyfiletransfer.app
+
+import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+private val Blue = Color(0xFF2563EB)
+
+private val LightColors = lightColorScheme(
+    primary = Blue,
+    onPrimary = Color.White,
+    background = Color(0xFFF3F5F9),
+    surface = Color.White,
+    surfaceVariant = Color(0xFFE8EDF5),
+    onBackground = Color(0xFF172033),
+    onSurface = Color(0xFF172033),
+    onSurfaceVariant = Color(0xFF64748B)
+)
+
+private val DarkColors = darkColorScheme(
+    primary = Color(0xFF60A5FA),
+    onPrimary = Color(0xFF081426),
+    background = Color(0xFF0B1120),
+    surface = Color(0xFF151F30),
+    surfaceVariant = Color(0xFF202C40),
+    onBackground = Color(0xFFE8EDF5),
+    onSurface = Color(0xFFE8EDF5),
+    onSurfaceVariant = Color(0xFF9AAAC0)
+)
+
+
+
+class MainActivity : ComponentActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        setContent {
+            CyFileTransferTheme {
+                CyFileTransferApp()
+            }
+        }
+
+        lifecycleScope.launch {
+            val success = withContext(Dispatchers.IO) {
+                FileStorage.ensureFolder(this@MainActivity)
+            }
+
+            if (!success) {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Не удалось создать папку PhoneTransfer",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+}
+
+
+@Composable
+fun CyFileTransferTheme(content: @Composable () -> Unit) {
+    val dark = isSystemInDarkTheme()
+
+    MaterialTheme(
+        colorScheme = if (dark) DarkColors else LightColors,
+        content = content
+    )
+}
+
+private enum class AppScreen {
+    HOME, FILES
+}
+
+@Composable
+fun CyFileTransferApp() {
+    var currentScreen by remember { mutableStateOf(AppScreen.HOME) }
+
+    BackHandler(enabled = currentScreen != AppScreen.HOME) {
+        currentScreen = AppScreen.HOME
+    }
+
+    when (currentScreen) {
+        AppScreen.HOME -> HomeScreen(
+            onOpenFiles = { currentScreen = AppScreen.FILES }
+        )
+
+        AppScreen.FILES -> FilesScreen(
+            onBack = { currentScreen = AppScreen.HOME }
+        )
+    }
+}
+
+@Composable
+fun HomeScreen(onOpenFiles: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.background)
+    ) {
+        val isTV = maxWidth >= 700.dp
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(
+                    horizontal = if (isTV) 48.dp else 20.dp,
+                    vertical = if (isTV) 32.dp else 24.dp
+                ),
+            verticalArrangement = Arrangement.spacedBy(
+                if (isTV) 26.dp else 20.dp
+            )
+        ) {
+
+            // HEADER
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(if (isTV) 58.dp else 46.dp)
+                        .background(
+                            colors.primary,
+                            RoundedCornerShape(16.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "CF",
+                        color = colors.onPrimary,
+                        fontSize = if (isTV) 23.sp else 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(Modifier.width(16.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "CyFileTransfer",
+                        fontSize = if (isTV) 30.sp else 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.onBackground
+                    )
+                    Text(
+                        "Локальная передача файлов",
+                        fontSize = if (isTV) 15.sp else 12.sp,
+                        color = colors.onSurfaceVariant
+                    )
+                }
+
+                Surface(
+                    color = colors.surfaceVariant,
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Text(
+                        "v1.0",
+                        modifier = Modifier.padding(
+                            horizontal = 14.dp,
+                            vertical = 8.dp
+                        ),
+                        color = colors.onSurfaceVariant,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
+            Text(
+                "Главная",
+                fontSize = if (isTV) 25.sp else 20.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.onBackground
+            )
+
+            // MAIN CARDS
+
+            if (isTV) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(22.dp)
+                ) {
+                    ServerCard(
+                        modifier = Modifier.weight(1f),
+                        isTV = true
+                    ) {
+                        Toast.makeText(
+                            context,
+                            "Запуск сервера добавим следующим этапом",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+
+                    FilesCard(
+                        modifier = Modifier.weight(1f),
+                        isTV = true,
+                        onClick = onOpenFiles
+                    )
+                }
+            } else {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    ServerCard(isTV = false) {
+                        Toast.makeText(
+                            context,
+                            "Запуск сервера добавим следующим этапом",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+
+                    FilesCard(
+                        isTV = false,
+                        onClick = onOpenFiles
+                    )
+                }
+            }
+
+            // INFORMATION
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = colors.surface
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(
+                        horizontal = 22.dp,
+                        vertical = 18.dp
+                    ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Папка хранения",
+                        modifier = Modifier.weight(1f),
+                        fontSize = if (isTV) 16.sp else 13.sp,
+                        color = colors.onSurfaceVariant
+                    )
+
+                    Text(
+                        "PhoneTransfer",
+                        fontSize = if (isTV) 16.sp else 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.onSurface
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Text(
+                "CyFileTransfer  •  Android",
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+                color = colors.onSurfaceVariant,
+                fontSize = 11.sp
+            )
+        }
+    }
+}
+
+@Composable
+fun ServerCard(
+    modifier: Modifier = Modifier,
+    isTV: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+
+    var focused by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = if (isTV) 250.dp else 190.dp)
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .clickable { onClick() }
+            .then(
+                if (focused) Modifier.border(
+                    3.dp,
+                    colors.primary,
+                    RoundedCornerShape(22.dp)
+                ) else Modifier
+            ),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = colors.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(if (isTV) 28.dp else 20.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    "01  /  ПЕРЕДАЧА",
+                    fontSize = 11.sp,
+                    letterSpacing = 1.5.sp,
+                    color = colors.primary,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    "Передача файлов",
+                    fontSize = if (isTV) 24.sp else 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.onSurface
+                )
+
+                Text(
+                    "Запусти сервер, чтобы подключить компьютер, телефон или планшет.",
+                    fontSize = if (isTV) 15.sp else 13.sp,
+                    color = colors.onSurfaceVariant,
+                    lineHeight = 21.sp
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        colors.primary,
+                        RoundedCornerShape(13.dp)
+                    )
+                    .padding(
+                        horizontal = 18.dp,
+                        vertical = if (isTV) 16.dp else 13.dp
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Запустить сервер",
+                    modifier = Modifier.weight(1f),
+                    color = colors.onPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = if (isTV) 16.sp else 14.sp
+                )
+                Text(
+                    "→",
+                    color = colors.onPrimary,
+                    fontSize = 22.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun FilesCard(
+    modifier: Modifier = Modifier,
+    isTV: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+
+    var focused by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = if (isTV) 250.dp else 190.dp)
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .clickable { onClick() }
+            .then(
+                if (focused) Modifier.border(
+                    3.dp,
+                    colors.primary,
+                    RoundedCornerShape(22.dp)
+                ) else Modifier
+            ),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = colors.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(if (isTV) 28.dp else 20.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    "02  /  ХРАНИЛИЩЕ",
+                    fontSize = 11.sp,
+                    letterSpacing = 1.5.sp,
+                    color = colors.primary,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    "Мои файлы",
+                    fontSize = if (isTV) 24.sp else 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.onSurface
+                )
+
+                Text(
+                    "Просмотр ранее загруженных файлов, их запуск и удаление.",
+                    fontSize = if (isTV) 15.sp else 13.sp,
+                    color = colors.onSurfaceVariant,
+                    lineHeight = 21.sp
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        colors.surfaceVariant,
+                        RoundedCornerShape(13.dp)
+                    )
+                    .padding(
+                        horizontal = 18.dp,
+                        vertical = if (isTV) 16.dp else 13.dp
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Открыть файлы",
+                    modifier = Modifier.weight(1f),
+                    color = colors.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = if (isTV) 16.sp else 14.sp
+                )
+                Text(
+                    "→",
+                    color = colors.primary,
+                    fontSize = 22.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun FilesScreen(onBack: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    var files by remember {
+        mutableStateOf<List<StoredFile>>(emptyList())
+    }
+
+    var isLoading by remember { mutableStateOf(true) }
+    var refreshKey by remember { mutableStateOf(0) }
+
+    LaunchedEffect(refreshKey) {
+        isLoading = true
+
+        files = withContext(Dispatchers.IO) {
+            FileStorage.getFiles(context)
+        }
+
+        isLoading = false
+    }
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.background)
+    ) {
+        val isTV = maxWidth >= 700.dp
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    horizontal = if (isTV) 48.dp else 20.dp,
+                    vertical = if (isTV) 32.dp else 24.dp
+                )
+        ) {
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = onBack,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("←  Назад")
+                }
+
+                Spacer(Modifier.width(20.dp))
+
+                Text(
+                    "Мои файлы",
+                    modifier = Modifier.weight(1f),
+                    fontSize = if (isTV) 29.sp else 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.onBackground
+                )
+
+                TextButton(
+                    onClick = { refreshKey++ }
+                ) {
+                    Text("Обновить")
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            Text(
+                "Хранилище приложения / PhoneTransfer",
+                fontSize = if (isTV) 16.sp else 13.sp,
+                color = colors.onSurfaceVariant
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            Text(
+                "Файлов: ${files.size}",
+                fontSize = 13.sp,
+                color = colors.onSurfaceVariant
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            if (isLoading) {
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+
+            } else if (files.isEmpty()) {
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = colors.surface
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            "Пока нет файлов",
+                            fontSize = if (isTV) 22.sp else 18.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.onSurface
+                        )
+
+                        Text(
+                            "Переданные файлы будут отображаться здесь.\n" +
+                                    "Сервер запускать для просмотра не требуется.",
+                            fontSize = if (isTV) 15.sp else 13.sp,
+                            color = colors.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 22.sp
+                        )
+                    }
+                }
+
+            } else {
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    files.forEach { file ->
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = colors.surface
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(18.dp),
+                                verticalArrangement = Arrangement.spacedBy(7.dp)
+                            ) {
+                                Text(
+                                    file.name,
+                                    fontSize = if (isTV) 17.sp else 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.onSurface
+                                )
+
+                                Text(
+                                    "Размер: ${formatFileSize(file.size)}",
+                                    fontSize = 13.sp,
+                                    color = colors.onSurfaceVariant
+                                )
+
+                                Text(
+                                    "Изменён: ${formatFileDate(file.lastModified)}",
+                                    fontSize = 12.sp,
+                                    color = colors.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatFileSize(size: Long): String {
+    return when {
+        size < 1024 -> "$size Б"
+        size < 1024 * 1024 ->
+            String.format("%.1f КБ", size / 1024.0)
+        size < 1024L * 1024 * 1024 ->
+            String.format("%.1f МБ", size / (1024.0 * 1024))
+        else ->
+            String.format("%.2f ГБ", size / (1024.0 * 1024 * 1024))
+    }
+}
+
+private fun formatFileDate(timestamp: Long): String {
+    if (timestamp <= 0L) return "неизвестно"
+
+    return java.text.SimpleDateFormat(
+        "dd.MM.yyyy HH:mm",
+        java.util.Locale.getDefault()
+    ).format(java.util.Date(timestamp))
+}
+

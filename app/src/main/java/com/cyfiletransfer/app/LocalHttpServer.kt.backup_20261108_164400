@@ -1,0 +1,690 @@
+package com.cyfiletransfer.app
+
+import android.content.Context
+import fi.iki.elonen.NanoHTTPD
+import fi.iki.elonen.NanoHTTPD.IHTTPSession
+import fi.iki.elonen.NanoHTTPD.Response
+import fi.iki.elonen.NanoHTTPD.Method
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.net.NetworkInterface
+import java.net.URLConnection
+import java.net.URLEncoder
+
+object LocalHttpServer {
+
+    private const val PORT = 1111
+    private const val UPLOAD_FIELD = "file"
+
+    private var server: NanoHTTPD? = null
+    private var appContext: Context? = null
+
+    @Synchronized
+    fun start(context: Context): Boolean {
+        if (server?.isAlive == true) return true
+
+        appContext = context.applicationContext
+
+        return try {
+            val newServer = object : NanoHTTPD(PORT) {
+
+                override fun serve(session: IHTTPSession): Response {
+                    return try {
+                        when {
+                            session.method == Method.OPTIONS -> {
+                                jsonResponse(JSONObject().put("ok", true))
+                            }
+
+                            session.method == Method.GET && session.uri == "/" -> {
+                                webPage()
+                            }
+
+                            session.method == Method.GET && session.uri == "/api/files" -> {
+                                listFiles()
+                            }
+
+                            session.method == Method.POST && session.uri == "/api/upload" -> {
+                                uploadFile(session)
+                            }
+
+                            session.method == Method.GET && session.uri == "/api/download" -> {
+                                downloadFile(session)
+                            }
+
+                            session.method == Method.DELETE && session.uri == "/api/delete" -> {
+                                deleteFile(session)
+                            }
+
+                            else -> jsonResponse(
+                                JSONObject().put("error", "Маршрут не найден"),
+                                Response.Status.NOT_FOUND
+                            )
+                        }
+                    } catch (e: Exception) {
+                        jsonResponse(
+                            JSONObject().put("error", e.message ?: "Внутренняя ошибка сервера"),
+                            Response.Status.INTERNAL_ERROR
+                        )
+                    }
+                }
+            }
+
+            newServer.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
+            server = newServer
+            true
+        } catch (_: Exception) {
+            server = null
+            false
+        }
+    }
+
+    private fun webPage(): Response {
+        val html = """
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2563eb">
+<title>CyFileTransfer</title>
+<style>
+:root {
+    color-scheme: light dark;
+    --bg: #f3f6fb;
+    --card: #ffffff;
+    --text: #172033;
+    --muted: #68758b;
+    --blue: #2563eb;
+    --border: #e2e8f0;
+    --danger: #dc2626;
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #101722;
+        --card: #1b2635;
+        --text: #edf2fa;
+        --muted: #a3afc2;
+        --blue: #60a5fa;
+        --border: #354255;
+        --danger: #f87171;
+    }
+}
+* { box-sizing: border-box; }
+body {
+    margin: 0;
+    padding: 24px 16px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Arial, sans-serif;
+}
+main { max-width: 900px; margin: auto; }
+header { margin-bottom: 24px; }
+h1 { margin: 0 0 8px; font-size: 28px; }
+.subtitle { color: var(--muted); }
+.card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 20px;
+    margin-bottom: 18px;
+}
+.drop {
+    border: 2px dashed var(--blue);
+    border-radius: 14px;
+    padding: 36px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: background .2s;
+}
+.drop.active { background: rgba(37,99,235,.12); }
+.drop strong { display: block; font-size: 18px; margin-bottom: 8px; }
+.muted { color: var(--muted); font-size: 14px; }
+button {
+    border: 0;
+    border-radius: 10px;
+    padding: 11px 17px;
+    background: var(--blue);
+    color: white;
+    font-size: 15px;
+    cursor: pointer;
+}
+button:disabled { opacity: .5; cursor: default; }
+.actions { display: flex; gap: 10px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+.progress-item { margin-top: 18px; }
+.progress-title { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; margin-bottom: 7px; }
+progress { width: 100%; height: 10px; accent-color: var(--blue); }
+.section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.file-tools { display: flex; gap: 10px; margin: 16px 0; flex-wrap: wrap; }
+.file-tools input, .file-tools select {
+    min-width: 0; flex: 1; padding: 11px 12px;
+    border: 1px solid var(--border); border-radius: 10px;
+    background: var(--bg); color: var(--text); font-size: 15px;
+}
+.file-icon {
+    width: 46px; height: 46px; border-radius: 12px;
+    display: grid; place-items: center; flex-shrink: 0;
+    background: rgba(37,99,235,.12); color: var(--blue);
+    font-size: 12px; font-weight: bold;
+}
+.section-title h2 { font-size: 20px; margin: 0; }
+.file {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+}
+.file:last-child { border-bottom: 0; }
+.file-info { min-width: 0; flex: 1; }
+.file-name { font-weight: 600; overflow-wrap: anywhere; }
+.file-meta { color: var(--muted); font-size: 13px; margin-top: 5px; }
+.file-actions { display: flex; gap: 7px; flex-shrink: 0; }
+.file-actions button { padding: 9px 12px; }
+.delete { background: var(--danger); }
+.empty { text-align: center; color: var(--muted); padding: 28px 8px; }
+#message { margin-top: 12px; font-size: 14px; color: var(--muted); }
+@media(max-width:520px) {
+    body { padding: 16px 10px; }
+    .card { padding: 15px; }
+    .file { align-items: flex-start; flex-wrap: wrap; }
+    .file-actions { width: 100%; justify-content: flex-end; }
+}
+</style>
+</head>
+<body>
+<main>
+<header>
+    <h1>CyFileTransfer</h1>
+    <div class="subtitle">Передача файлов по локальной сети</div>
+</header>
+
+<section class="card">
+    <div class="drop" id="drop">
+        <strong>Перетащите файлы сюда</strong>
+        <span class="muted">или выберите файлы на устройстве</span>
+        <div class="actions">
+            <button id="choose">Выбрать файлы</button>
+        </div>
+    </div>
+    <input id="picker" type="file" multiple hidden>
+    <div id="progress"></div>
+    <div id="message"></div>
+</section>
+
+<section class="card">
+    <div class="section-title">
+        <h2>Мои файлы</h2>
+        <button id="refresh">Обновить</button>
+    </div>
+    <div class="file-tools">
+        <input id="search" type="search" placeholder="Поиск по названию файла">
+        <select id="sort">
+            <option value="date">Сначала новые</option>
+            <option value="name">По имени</option>
+            <option value="size">По размеру</option>
+        </select>
+    </div>
+    <div id="files"><div class="empty">Загрузка списка...</div></div>
+</section>
+</main>
+
+<script>
+const filesBox = document.getElementById('files');
+const picker = document.getElementById('picker');
+const drop = document.getElementById('drop');
+const progressBox = document.getElementById('progress');
+const message = document.getElementById('message');
+
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' Б';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' КБ';
+    if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' МБ';
+    return (bytes / 1073741824).toFixed(2) + ' ГБ';
+}
+
+function formatDate(value) {
+    return new Date(value).toLocaleString('ru-RU');
+}
+
+async function loadFiles() {
+    try {
+        const response = await fetch('/api/files');
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || 'Ошибка получения списка');
+
+        filesBox.replaceChildren();
+
+        const query = document.getElementById('search').value.trim().toLocaleLowerCase('ru');
+        const sort = document.getElementById('sort').value;
+
+        const visibleFiles = data.files
+            .filter(file => file.name.toLocaleLowerCase('ru').includes(query))
+            .sort((a, b) => {
+                if (sort === 'name') return a.name.localeCompare(b.name, 'ru');
+                if (sort === 'size') return b.size - a.size;
+                return b.lastModified - a.lastModified;
+            });
+
+        if (!visibleFiles.length) {
+            const empty = document.createElement('div');
+            empty.className = 'empty';
+            empty.textContent = query ? 'Ничего не найдено' : 'Пока нет загруженных файлов';
+            filesBox.appendChild(empty);
+            return;
+        }
+
+        visibleFiles.forEach(file => {
+            const row = document.createElement('div');
+            row.className = 'file';
+
+            const info = document.createElement('div');
+            info.className = 'file-info';
+
+            const name = document.createElement('div');
+            name.className = 'file-name';
+            name.textContent = file.name;
+
+            const meta = document.createElement('div');
+            meta.className = 'file-meta';
+            meta.textContent = formatSize(file.size) + ' · ' + formatDate(file.lastModified);
+
+            info.append(name, meta);
+
+            const icon = document.createElement('div');
+            icon.className = 'file-icon';
+            const extension = file.name.includes('.')
+                ? file.name.split('.').pop().toLowerCase()
+                : '';
+            const icons = {
+                pdf: 'PDF',
+                doc: 'DOC', docx: 'DOC',
+                xls: 'XLS', xlsx: 'XLS',
+                ppt: 'PPT', pptx: 'PPT',
+                jpg: 'IMG', jpeg: 'IMG', png: 'IMG', gif: 'IMG', webp: 'IMG',
+                mp3: 'AUDIO', wav: 'AUDIO', flac: 'AUDIO',
+                mp4: 'VIDEO', mkv: 'VIDEO', avi: 'VIDEO',
+                zip: 'ZIP', rar: 'ZIP', '7z': 'ZIP',
+                txt: 'TXT', apk: 'APK'
+            };
+            icon.textContent = icons[extension] || 'FILE';
+
+            const actions = document.createElement('div');
+            actions.className = 'file-actions';
+
+            const download = document.createElement('button');
+            download.textContent = 'Скачать';
+            download.addEventListener('click', () => {
+                window.location.href = '/api/download?name=' + encodeURIComponent(file.name);
+            });
+
+            const remove = document.createElement('button');
+            remove.textContent = 'Удалить';
+            remove.className = 'delete';
+            remove.addEventListener('click', () => deleteFile(file.name));
+
+            actions.append(download, remove);
+            row.append(icon, info, actions);
+            filesBox.appendChild(row);
+        });
+    } catch (error) {
+        filesBox.textContent = 'Не удалось загрузить список: ' + error.message;
+    }
+}
+
+async function deleteFile(name) {
+    if (!confirm('Удалить файл "' + name + '"?')) return;
+
+    try {
+        const response = await fetch('/api/delete?name=' + encodeURIComponent(name), {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || 'Не удалось удалить файл');
+        message.textContent = 'Файл удалён: ' + name;
+        loadFiles();
+    } catch (error) {
+        message.textContent = 'Ошибка удаления: ' + error.message;
+    }
+}
+
+function uploadFile(file) {
+    return new Promise(resolve => {
+        const item = document.createElement('div');
+        item.className = 'progress-item';
+
+        const title = document.createElement('div');
+        title.className = 'progress-title';
+
+        const fileName = document.createElement('span');
+        fileName.textContent = file.name;
+
+        const details = document.createElement('span');
+        details.textContent = '0%';
+
+        const bar = document.createElement('progress');
+        bar.max = 100;
+        bar.value = 0;
+
+        title.append(fileName, details);
+        item.append(title, bar);
+        progressBox.appendChild(item);
+
+        const xhr = new XMLHttpRequest();
+        const started = Date.now();
+        let previousLoaded = 0;
+        let previousTime = started;
+        let speed = 0;
+
+        xhr.open('POST', '/api/upload');
+
+        xhr.upload.addEventListener('progress', event => {
+            if (!event.lengthComputable) return;
+
+            const now = Date.now();
+            const percent = Math.round(event.loaded / event.total * 100);
+            const elapsed = (now - previousTime) / 1000;
+
+            if (elapsed >= 0.5) {
+                speed = (event.loaded - previousLoaded) / elapsed;
+                previousLoaded = event.loaded;
+                previousTime = now;
+            }
+
+            const remaining = speed > 0 ? (event.total - event.loaded) / speed : 0;
+            details.textContent = percent + '% · ' + formatSize(speed) + '/с · осталось ' + Math.ceil(remaining) + ' с';
+            bar.value = percent;
+        });
+
+        xhr.onload = () => {
+            try {
+                const data = JSON.parse(xhr.responseText);
+                if (xhr.status >= 200 && xhr.status < 300 && data.ok) {
+                    details.textContent = 'Готово · ' + formatSize(file.size);
+                    bar.value = 100;
+                } else {
+                    details.textContent = 'Ошибка: ' + (data.error || xhr.status);
+                }
+            } catch (_) {
+                details.textContent = 'Ошибка ответа сервера';
+            }
+            resolve();
+        };
+
+        xhr.onerror = () => {
+            details.textContent = 'Ошибка соединения';
+            resolve();
+        };
+
+        const form = new FormData();
+        form.append('file', file, file.name);
+        xhr.send(form);
+    });
+}
+
+async function uploadFiles(files) {
+    if (!files || !files.length) return;
+
+    message.textContent = 'Загрузка файлов...';
+    for (const file of files) {
+        await uploadFile(file);
+    }
+    message.textContent = 'Загрузка завершена';
+    await loadFiles();
+}
+
+document.getElementById('choose').addEventListener('click', () => picker.click());
+picker.addEventListener('change', () => {
+    uploadFiles(Array.from(picker.files));
+    picker.value = '';
+});
+
+document.getElementById('refresh').addEventListener('click', loadFiles);
+document.getElementById('search').addEventListener('input', loadFiles);
+document.getElementById('sort').addEventListener('change', loadFiles);
+
+drop.addEventListener('dragover', event => {
+    event.preventDefault();
+    drop.classList.add('active');
+});
+drop.addEventListener('dragleave', () => drop.classList.remove('active'));
+drop.addEventListener('drop', event => {
+    event.preventDefault();
+    drop.classList.remove('active');
+    uploadFiles(Array.from(event.dataTransfer.files));
+});
+
+loadFiles();
+</script>
+</body>
+</html>
+        """.trimIndent()
+
+        return NanoHTTPD.newFixedLengthResponse(
+            Response.Status.OK,
+            "text/html; charset=UTF-8",
+            html
+        )
+    }
+    private fun getFolder(): File? {
+        val context = appContext ?: return null
+        return FileStorage.getFolder(context)
+    }
+
+    private fun safeFile(name: String): File? {
+        val folder = getFolder() ?: return null
+
+        if (name.isBlank() || name == "." || name == ".." ||
+            name.contains("/") || name.contains("\\")
+        ) return null
+
+        return try {
+            val file = File(folder, name)
+            if (file.canonicalFile.parentFile == folder.canonicalFile) file else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun listFiles(): Response {
+        val folder = getFolder()
+            ?: return jsonResponse(
+                JSONObject().put("error", "Папка хранения недоступна"),
+                Response.Status.INTERNAL_ERROR
+            )
+
+        val array = JSONArray()
+
+        folder.listFiles()
+            ?.filter { it.isFile }
+            ?.sortedByDescending { it.lastModified() }
+            ?.forEach { file ->
+                val item = JSONObject()
+                    .put("name", file.name)
+                    .put("size", file.length())
+                    .put("lastModified", file.lastModified())
+                    .put(
+                        "mimeType",
+                        URLConnection.guessContentTypeFromName(file.name) ?: "application/octet-stream"
+                    )
+
+                array.put(item)
+            }
+
+        return jsonResponse(
+            JSONObject()
+                .put("ok", true)
+                .put("files", array)
+        )
+    }
+
+    private fun uploadFile(session: IHTTPSession): Response {
+        val folder = getFolder()
+            ?: return jsonResponse(
+                JSONObject().put("error", "Папка хранения недоступна"),
+                Response.Status.INTERNAL_ERROR
+            )
+
+        val tempFiles = HashMap<String, String>()
+        session.parseBody(tempFiles)
+
+        val tempPath = tempFiles[UPLOAD_FIELD]
+            ?: return jsonResponse(
+                JSONObject().put("error", "Файл не передан. Используйте поле file."),
+                Response.Status.BAD_REQUEST
+            )
+
+        val originalName = session.parms[UPLOAD_FIELD]
+            ?: "upload_${System.currentTimeMillis()}.bin"
+
+        val cleanName = originalName
+            .substringAfterLast('/')
+            .substringAfterLast('\\')
+            .replace(Regex("[\\r\\n]"), "_")
+            .ifBlank { "upload_${System.currentTimeMillis()}.bin" }
+
+        var destination = File(folder, cleanName)
+        var counter = 1
+
+        while (destination.exists()) {
+            val dot = cleanName.lastIndexOf('.')
+            val base = if (dot > 0) cleanName.substring(0, dot) else cleanName
+            val extension = if (dot > 0) cleanName.substring(dot) else ""
+            destination = File(folder, "$base ($counter)$extension")
+            counter++
+        }
+
+        FileInputStream(tempPath).use { input ->
+            FileOutputStream(destination).use { output ->
+                input.copyTo(output, 64 * 1024)
+            }
+        }
+
+        return jsonResponse(
+            JSONObject()
+                .put("ok", true)
+                .put("name", destination.name)
+                .put("size", destination.length())
+        )
+    }
+
+    private fun downloadFile(session: IHTTPSession): Response {
+        val name = session.parms["name"]
+            ?: return jsonResponse(
+                JSONObject().put("error", "Не указано имя файла"),
+                Response.Status.BAD_REQUEST
+            )
+
+        val file = safeFile(name)
+            ?: return jsonResponse(
+                JSONObject().put("error", "Некорректное имя файла"),
+                Response.Status.BAD_REQUEST
+            )
+
+        if (!file.isFile) {
+            return jsonResponse(
+                JSONObject().put("error", "Файл не найден"),
+                Response.Status.NOT_FOUND
+            )
+        }
+
+        val mime = URLConnection.guessContentTypeFromName(file.name)
+            ?: "application/octet-stream"
+
+        val encodedName = URLEncoder.encode(file.name, "UTF-8").replace("+", "%20")
+
+        return NanoHTTPD.newFixedLengthResponse(
+            Response.Status.OK,
+            mime,
+            FileInputStream(file),
+            file.length()
+        ).apply {
+            addHeader("Content-Disposition", "attachment; filename*=UTF-8''$encodedName")
+        }
+    }
+
+    private fun deleteFile(session: IHTTPSession): Response {
+        val name = session.parms["name"]
+            ?: return jsonResponse(
+                JSONObject().put("error", "Не указано имя файла"),
+                Response.Status.BAD_REQUEST
+            )
+
+        val file = safeFile(name)
+            ?: return jsonResponse(
+                JSONObject().put("error", "Некорректное имя файла"),
+                Response.Status.BAD_REQUEST
+            )
+
+        if (!file.isFile) {
+            return jsonResponse(
+                JSONObject().put("error", "Файл не найден"),
+                Response.Status.NOT_FOUND
+            )
+        }
+
+        val deleted = file.delete()
+
+        return jsonResponse(
+            JSONObject()
+                .put("ok", deleted)
+                .put("name", name),
+            if (deleted) Response.Status.OK else Response.Status.INTERNAL_ERROR
+        )
+    }
+
+    private fun jsonResponse(
+        json: JSONObject,
+        status: Response.IStatus = Response.Status.OK
+    ): Response {
+        return NanoHTTPD.newFixedLengthResponse(
+            status,
+            "application/json; charset=UTF-8",
+            json.toString()
+        ).apply {
+            addHeader("Access-Control-Allow-Origin", "*")
+            addHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+            addHeader("Access-Control-Allow-Headers", "Content-Type")
+        }
+    }
+
+    @Synchronized
+    fun stop() {
+        server?.stop()
+        server = null
+    }
+
+    fun isRunning(): Boolean = server?.isAlive == true
+
+    fun getLocalIpAddress(): String? {
+        return try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+
+            while (interfaces.hasMoreElements()) {
+                val networkInterface = interfaces.nextElement()
+
+                if (!networkInterface.isUp || networkInterface.isLoopback) continue
+
+                val addresses = networkInterface.inetAddresses
+
+                while (addresses.hasMoreElements()) {
+                    val address = addresses.nextElement()
+
+                    if (!address.isLoopbackAddress &&
+                        address.hostAddress?.contains(':') == false
+                    ) {
+                        return address.hostAddress
+                    }
+                }
+            }
+
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun getPort(): Int = PORT
+}
