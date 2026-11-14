@@ -52,18 +52,6 @@ CyFileTransfer — приложение для Android TV для передач�
 
 - Android 6.0 (API 23) или новее.
 
-## Сборка проекта
-
-Откройте проект в Android Studio и дождитесь синхронизации Gradle.
-
-Команда сборки Debug APK:
-
-    .\gradlew.bat assembleDebug
-
-Путь к APK:
-
-    app/build/outputs/apk/debug/app-debug.apk
-
 ## Безопасность
 
 - Сервер работает в локальной сети.
