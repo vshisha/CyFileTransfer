@@ -464,32 +464,68 @@ fun FilesCard(
 
     fun openFile(file: StoredFile) {
         try {
+            val targetFile = java.io.File(FileStorage.getFolder(context), file.name)
+
+            if (!targetFile.isFile) {
+                Toast.makeText(context, "Файл не найден", Toast.LENGTH_LONG).show()
+                return
+            }
+
             val uri = FileProvider.getUriForFile(
                 context,
                 "${context.packageName}.fileprovider",
-                java.io.File(FileStorage.getFolder(context), file.name)
+                targetFile
             )
 
-            val extension = file.name.substringAfterLast(".", "").lowercase()
-            val mimeType = MimeTypeMap.getSingleton()
-                .getMimeTypeFromExtension(extension) ?: "*/*"
+            val isApk = file.name.endsWith(".apk", ignoreCase = true)
 
-            val intent = Intent(Intent.ACTION_VIEW).apply {
+            if (
+                isApk &&
+                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+                !context.packageManager.canRequestPackageInstalls()
+            ) {
+                Toast.makeText(
+                    context,
+                    "Разреши установку приложений и повторно нажми на APK",
+                    Toast.LENGTH_LONG
+                ).show()
+
+                val settingsIntent = Intent(
+                    android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES
+                ).apply {
+                    data = android.net.Uri.parse("package:${context.packageName}")
+                }
+
+                context.startActivity(settingsIntent)
+                return
+            }
+
+            val extension = file.name.substringAfterLast(".", "").lowercase()
+            val mimeType = if (isApk) {
+                "application/vnd.android.package-archive"
+            } else {
+                MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "*/*"
+            }
+
+            val intent = Intent(
+                if (isApk) Intent.ACTION_INSTALL_PACKAGE else Intent.ACTION_VIEW
+            ).apply {
                 setDataAndType(uri, mimeType)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
 
             context.startActivity(intent)
+
         } catch (_: android.content.ActivityNotFoundException) {
             Toast.makeText(
                 context,
-                "Нет приложения для открытия этого файла",
+                "Не удалось запустить установщик или приложение для открытия файла",
                 Toast.LENGTH_LONG
             ).show()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             Toast.makeText(
                 context,
-                "Не удалось открыть файл",
+                "Ошибка открытия файла: ${e.message ?: "неизвестная ошибка"}",
                 Toast.LENGTH_LONG
             ).show()
         }
@@ -673,40 +709,68 @@ fun FilesScreen(onBack: () -> Unit) {
 
     fun openFile(file: StoredFile) {
         try {
+            val targetFile = java.io.File(FileStorage.getFolder(context), file.name)
+
+            if (!targetFile.isFile) {
+                Toast.makeText(context, "Файл не найден", Toast.LENGTH_LONG).show()
+                return
+            }
+
             val uri = FileProvider.getUriForFile(
                 context,
                 "${context.packageName}.fileprovider",
-                java.io.File(
-                    FileStorage.getFolder(context),
-                    file.name
-                )
+                targetFile
             )
 
-            val extension = file.name.substringAfterLast(
-                ".",
-                ""
-            ).lowercase()
+            val isApk = file.name.endsWith(".apk", ignoreCase = true)
 
-            val mimeType = MimeTypeMap.getSingleton()
-                .getMimeTypeFromExtension(extension)
-                ?: "*/*"
+            if (
+                isApk &&
+                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+                !context.packageManager.canRequestPackageInstalls()
+            ) {
+                Toast.makeText(
+                    context,
+                    "Разреши установку приложений и повторно нажми на APK",
+                    Toast.LENGTH_LONG
+                ).show()
 
-            val intent = Intent(Intent.ACTION_VIEW).apply {
+                val settingsIntent = Intent(
+                    android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES
+                ).apply {
+                    data = android.net.Uri.parse("package:${context.packageName}")
+                }
+
+                context.startActivity(settingsIntent)
+                return
+            }
+
+            val extension = file.name.substringAfterLast(".", "").lowercase()
+            val mimeType = if (isApk) {
+                "application/vnd.android.package-archive"
+            } else {
+                MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "*/*"
+            }
+
+            val intent = Intent(
+                if (isApk) Intent.ACTION_INSTALL_PACKAGE else Intent.ACTION_VIEW
+            ).apply {
                 setDataAndType(uri, mimeType)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
 
             context.startActivity(intent)
+
         } catch (_: android.content.ActivityNotFoundException) {
             Toast.makeText(
                 context,
-                "Нет приложения для открытия этого файла",
+                "Не удалось запустить установщик или приложение для открытия файла",
                 Toast.LENGTH_LONG
             ).show()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             Toast.makeText(
                 context,
-                "Не удалось открыть файл",
+                "Ошибка открытия файла: ${e.message ?: "неизвестная ошибка"}",
                 Toast.LENGTH_LONG
             ).show()
         }
