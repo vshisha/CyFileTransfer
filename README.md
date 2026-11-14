@@ -4,9 +4,7 @@ CyFileTransfer — приложение для Android TV для передач�
 
 Приложение превращает Android-устройство в локальный файловый сервер. Для загрузки файлов с телефона, компьютера или другого устройства достаточно открыть браузер.
 
-## Скачать актуальную версию
-
-**[Скачать последнюю версию CyFileTransfer (APK)](https://github.com/vshisha/CyFileTransfer/releases/latest)**
+## Скачать
 
 Актуальная версия приложения всегда доступна в разделе [GitHub Releases](https://github.com/vshisha/CyFileTransfer/releases).
 
